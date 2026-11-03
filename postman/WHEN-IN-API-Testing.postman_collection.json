@@ -1,0 +1,265 @@
+{
+  "info": {
+    "_postman_id": "80f1397a-f125-4cc7-9be8-8cf1955e7d11",
+    "name": "WHEN IN API Testing",
+    "description": "Postman requests for the WHEN IN Next.js API. Read-only requests are safe for the shared development database. Requests that create accounts/cafes/notifications or send email are clearly separated and must be run selectively. Cookie authentication uses Postman's cookie jar.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:3000" },
+    { "key": "unauthBaseUrl", "value": "http://127.0.0.1:3000" },
+    { "key": "testName", "value": "" },
+    { "key": "testEmail", "value": "" },
+    { "key": "testPassword", "value": "" },
+    { "key": "testCafeName", "value": "" },
+    { "key": "testCafeId", "value": "" },
+    { "key": "cafeId", "value": "" },
+    { "key": "offerId", "value": "" },
+    { "key": "notificationId", "value": "" },
+    { "key": "testNotificationId", "value": "" },
+    { "key": "recipientEmail", "value": "postman-check@example.invalid" },
+    { "key": "allowEmailRequests", "value": "false" }
+  ],
+  "item": [
+    {
+      "name": "01 - Safe read-only checks",
+      "description": "These requests do not create or modify application data. Run this folder against the shared WHENIN database.",
+      "item": [
+        {
+          "name": "Health",
+          "request": { "method": "GET", "header": [], "url": "{{baseUrl}}/api/health" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('HTTP 200', () => pm.response.to.have.status(200));", "const body = pm.response.json();", "pm.test('Health response is successful', () => pm.expect(body.success).to.eql(true));", "pm.test('Database is connected', () => pm.expect(body.database.status).to.eql('connected'));", "pm.test('Active database is WHENIN', () => pm.expect(body.database.activeName).to.eql('WHENIN'));", "pm.test('Health includes collection counts', () => pm.expect(body.database.collections).to.have.property('cafes'));"] } }]
+        },
+        {
+          "name": "Cafe list - default pagination",
+          "request": { "method": "GET", "header": [], "url": "{{baseUrl}}/api/cafes?city=Pune" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('HTTP 200', () => pm.response.to.have.status(200));", "const body = pm.response.json();", "pm.test('Cafe list response shape', () => { pm.expect(body.success).to.eql(true); pm.expect(body.data).to.be.an('array'); pm.expect(body.pagination).to.be.an('object'); });", "pm.test('Pagination metadata is valid', () => { pm.expect(body.pagination.currentPage).to.be.a('number'); pm.expect(body.pagination.pageSize).to.be.a('number'); pm.expect(body.pagination.totalRecords).to.be.a('number'); pm.expect(body.pagination.totalPages).to.be.a('number'); });", "if (body.data[0]?._id) pm.collectionVariables.set('cafeId', body.data[0]._id);"] } }]
+        },
+        {
+          "name": "Cafe search",
+          "request": { "method": "GET", "header": [], "url": "{{baseUrl}}/api/cafes?search=Brew&city=Pune" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('HTTP 200', () => pm.response.to.have.status(200));", "const body = pm.response.json();", "pm.test('Search returns paginated cafe array', () => { pm.expect(body.success).to.eql(true); pm.expect(body.data).to.be.an('array'); pm.expect(body.pagination).to.have.property('totalRecords'); });"] } }]
+        },
+        {
+          "name": "Cafe filter - cuisine",
+          "request": { "method": "GET", "header": [], "url": "{{baseUrl}}/api/cafes?city=Pune&cuisine=Italian&page=1&limit=5" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('HTTP 200', () => pm.response.to.have.status(200));", "const body = pm.response.json();", "pm.test('Cuisine filter and page size are applied', () => { pm.expect(body.success).to.eql(true); pm.expect(body.pagination.pageSize).to.eql(5); pm.expect(body.data).to.be.an('array'); });"] } }]
+        },
+        {
+          "name": "Cafe pagination - max page size is capped",
+          "request": { "method": "GET", "header": [], "url": "{{baseUrl}}/api/cafes?page=1&limit=1000&city=Pune" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('HTTP 200', () => pm.response.to.have.status(200));", "const body = pm.response.json();", "pm.test('Server enforces maximum page size of 20', () => pm.expect(body.pagination.pageSize).to.be.at.most(20));", "pm.test('Returned count does not exceed effective page size', () => pm.expect(body.data.length).to.be.at.most(body.pagination.pageSize));"] } }]
+        },
+        {
+          "name": "Cafe pagination - invalid page falls back safely",
+          "request": { "method": "GET", "header": [], "url": "{{baseUrl}}/api/cafes?page=-5&limit=0" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('HTTP 200', () => pm.response.to.have.status(200));", "const body = pm.response.json();", "pm.test('Invalid pagination values use safe defaults', () => { pm.expect(body.pagination.currentPage).to.be.at.least(1); pm.expect(body.pagination.pageSize).to.be.at.least(1); pm.expect(body.pagination.pageSize).to.be.at.most(20); });"] } }]
+        },
+        {
+          "name": "Cafe detail - selected cafe",
+          "request": { "method": "GET", "header": [], "url": "{{baseUrl}}/api/cafes/{{cafeId}}" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('HTTP 200 when cafeId was populated by cafe list', () => pm.response.to.have.status(200));", "const body = pm.response.json();", "pm.test('Cafe detail response has required fields', () => { pm.expect(body.success).to.eql(true); pm.expect(body.cafe).to.be.an('object'); pm.expect(body.cafe).to.have.property('name'); pm.expect(body.cafe).to.have.property('slug'); });"] } }]
+        },
+        {
+          "name": "Cafe detail - invalid ID",
+          "request": { "method": "GET", "header": [], "url": "{{baseUrl}}/api/cafes/not-an-object-id" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('HTTP 404 for invalid cafe ID', () => pm.response.to.have.status(404));", "const body = pm.response.json();", "pm.test('Error response has success false and message', () => { pm.expect(body.success).to.eql(false); pm.expect(body.message).to.be.a('string'); });"] } }]
+        },
+        {
+          "name": "Offer list",
+          "request": { "method": "GET", "header": [], "url": "{{baseUrl}}/api/offers?active=true" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('HTTP 200', () => pm.response.to.have.status(200));", "const body = pm.response.json();", "pm.test('Offer list response shape', () => { pm.expect(body.success).to.eql(true); pm.expect(body.data).to.be.an('array'); });", "if (body.data[0]?._id) pm.collectionVariables.set('offerId', body.data[0]._id);"] } }]
+        },
+        {
+          "name": "Offer search",
+          "request": { "method": "GET", "header": [], "url": "{{baseUrl}}/api/offers?search=brunch" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('HTTP 200', () => pm.response.to.have.status(200));", "const body = pm.response.json();", "pm.test('Offer search returns an array', () => { pm.expect(body.success).to.eql(true); pm.expect(body.data).to.be.an('array'); });"] } }]
+        },
+        {
+          "name": "Offer detail - selected offer",
+          "request": { "method": "GET", "header": [], "url": "{{baseUrl}}/api/offers/{{offerId}}" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('HTTP 200 when offerId was populated by offer list', () => pm.response.to.have.status(200));", "const body = pm.response.json();", "pm.test('Offer details include cafe reference and terms', () => { pm.expect(body.success).to.eql(true); pm.expect(body.data).to.have.property('title'); pm.expect(body.data).to.have.property('cafeId'); pm.expect(body.data).to.have.property('terms'); });"] } }]
+        },
+        {
+          "name": "Offer detail - invalid ID",
+          "request": { "method": "GET", "header": [], "url": "{{baseUrl}}/api/offers/not-an-object-id" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('HTTP 404 for invalid offer ID', () => pm.response.to.have.status(404));", "const body = pm.response.json();", "pm.test('Error response has success false and message', () => { pm.expect(body.success).to.eql(false); pm.expect(body.message).to.be.a('string'); });"] } }]
+        },
+        {
+          "name": "Current user - unauthorized when logged out",
+          "request": { "method": "GET", "header": [{ "key": "Cookie", "value": "token=invalid-postman-token", "type": "text" }], "url": "{{unauthBaseUrl}}/api/auth/me" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('HTTP 401 without valid cookie', () => pm.response.to.have.status(401));", "const body = pm.response.json();", "pm.test('Unauthorized auth response has null user', () => pm.expect(body.user).to.eql(null));"] } }]
+        },
+        {
+          "name": "Notifications - unauthorized when logged out",
+          "request": { "method": "GET", "header": [{ "key": "Cookie", "value": "token=invalid-postman-token", "type": "text" }], "url": "{{unauthBaseUrl}}/api/notifications" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('HTTP 401 without valid cookie', () => pm.response.to.have.status(401));", "const body = pm.response.json();", "pm.test('Unauthorized response is an error object', () => { pm.expect(body.success).to.eql(false); pm.expect(body.message).to.be.a('string'); });"] } }]
+        },
+        {
+          "name": "Cafe submission - unauthorized",
+          "request": { "method": "POST", "header": [{ "key": "Cookie", "value": "token=invalid-postman-token", "type": "text" }, { "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\"name\":\"Should not be created\",\"description\":\"Unauthorized cafe submission test\",\"address\":\"123 Unauthorized Road\",\"locality\":\"Testville\",\"city\":\"Pune\",\"cuisine\":\"Cafe\",\"averagePriceForTwo\":800,\"openingHours\":\"9:00 AM - 8:00 PM\"}", "options": { "raw": { "language": "json" } } }, "url": "{{unauthBaseUrl}}/api/cafes" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('HTTP 401 without valid cookie', () => pm.response.to.have.status(401));", "pm.test('Unauthorized cafe submission is rejected', () => pm.expect(pm.response.json().success).to.eql(false));"] } }]
+        },
+        {
+          "name": "Unsupported method - health",
+          "request": { "method": "POST", "header": [], "url": "{{baseUrl}}/api/health" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('Unsupported method is rejected with 405', () => pm.response.to.have.status(405));"] } }]
+        }
+      ]
+    },
+    {
+      "name": "02 - Authenticated API workflow (creates test data)",
+      "description": "Requires a unique test identity. Registration persists a user because there is no user-delete endpoint. Cafe creation generates an in-app notification; deleting the cafe does not delete that notification. Run only against a disposable/local database or with explicit acceptance of those records.",
+      "item": [
+        {
+          "name": "Register unique test user",
+          "event": [{ "listen": "prerequest", "script": { "type": "text/javascript", "exec": ["const guid = pm.variables.replaceIn('{{$guid}}').replace(/-/g, '');", "if (!pm.environment.get('testEmail')) pm.environment.set('testEmail', `whenin.postman.${guid}@example.invalid`);", "if (!pm.environment.get('testPassword')) pm.environment.set('testPassword', `W!${guid}a9`);", "if (!pm.environment.get('testName')) pm.environment.set('testName', `Postman Tester ${guid.slice(0, 8)}`);"] } }, { "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('Registration returns 200', () => pm.response.to.have.status(200));", "const body = pm.response.json();", "pm.test('Registration response includes user identity', () => { pm.expect(body.success).to.eql(true); pm.expect(body.user).to.have.property('id'); pm.expect(body.user).to.have.property('email'); });", "if (body.user?.id) pm.environment.set('testUserId', body.user.id);"] } }],
+          "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"name\": \"{{testName}}\",\n  \"email\": \"{{testEmail}}\",\n  \"password\": \"{{testPassword}}\"\n}", "options": { "raw": { "language": "json" } } }, "url": "{{baseUrl}}/api/auth/register" }
+        },
+        {
+          "name": "Register - missing fields",
+          "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\"email\":\"missing-fields@example.invalid\"}", "options": { "raw": { "language": "json" } } }, "url": "{{baseUrl}}/api/auth/register" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('HTTP 400 for missing registration fields', () => pm.response.to.have.status(400));", "pm.test('Error message is returned', () => pm.expect(pm.response.json().message).to.be.a('string'));"] } }]
+        },
+        {
+          "name": "Register - invalid JSON",
+          "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{invalid json", "options": { "raw": { "language": "json" } } }, "url": "{{baseUrl}}/api/auth/register" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('HTTP 400 for invalid JSON', () => pm.response.to.have.status(400));", "pm.test('Invalid-body message is returned', () => pm.expect(pm.response.json().message).to.eql('Invalid request body.'));"] } }]
+        },
+        {
+          "name": "Login",
+          "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"email\": \"{{testEmail}}\",\n  \"password\": \"{{testPassword}}\"\n}", "options": { "raw": { "language": "json" } } }, "url": "{{baseUrl}}/api/auth/login" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('Login returns 200', () => pm.response.to.have.status(200));", "const body = pm.response.json();", "pm.test('Login returns authenticated user', () => { pm.expect(body.success).to.eql(true); pm.expect(body.user).to.have.property('id'); });"] } }]
+        },
+        {
+          "name": "Login - invalid credentials",
+          "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\"email\":\"not-a-user@example.invalid\",\"password\":\"wrong-password\"}", "options": { "raw": { "language": "json" } } }, "url": "{{baseUrl}}/api/auth/login" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('HTTP 401 for invalid credentials', () => pm.response.to.have.status(401));", "pm.test('Credential error is explicit', () => pm.expect(pm.response.json().message).to.eql('Invalid email or password.'));"] } }]
+        },
+        {
+          "name": "Current user",
+          "request": { "method": "GET", "header": [], "url": "{{baseUrl}}/api/auth/me" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('HTTP 200 while authenticated', () => pm.response.to.have.status(200));", "const body = pm.response.json();", "pm.test('Current user has id, email and name', () => { pm.expect(body.success).to.eql(true); pm.expect(body.user).to.have.property('id'); pm.expect(body.user).to.have.property('email'); pm.expect(body.user).to.have.property('name'); });"] } }]
+        },
+        {
+          "name": "Profile GET",
+          "request": { "method": "GET", "header": [], "url": "{{baseUrl}}/api/users/me" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('HTTP 200 while authenticated', () => pm.response.to.have.status(200));", "const body = pm.response.json();", "pm.test('Profile includes user and cafe array', () => { pm.expect(body.success).to.eql(true); pm.expect(body.user).to.have.property('email'); pm.expect(body.cafes).to.be.an('array'); });"] } }]
+        },
+        {
+          "name": "Profile PATCH - update test account only",
+          "request": { "method": "PATCH", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\"name\":\"{{testName}} Updated\",\"notificationPreferences\":{\"cafeSubmission\":true,\"offerAlerts\":true}}", "options": { "raw": { "language": "json" } } }, "url": "{{baseUrl}}/api/users/me" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('HTTP 200 for test account profile update', () => pm.response.to.have.status(200));", "const body = pm.response.json();", "pm.test('Updated test user is returned', () => { pm.expect(body.success).to.eql(true); pm.expect(body.user.name).to.include('Updated'); });"] } }]
+        },
+        {
+          "name": "Profile PATCH - invalid input",
+          "request": { "method": "PATCH", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\"name\":\"x\"}", "options": { "raw": { "language": "json" } } }, "url": "{{baseUrl}}/api/users/me" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('HTTP 400 for invalid profile name', () => pm.response.to.have.status(400));", "pm.test('Profile validation error is returned', () => pm.expect(pm.response.json().message).to.eql('Invalid profile update.'));"] } }]
+        },
+        {
+          "name": "Cafe submission - valid unique test cafe",
+          "event": [{ "listen": "prerequest", "script": { "type": "text/javascript", "exec": ["const guid = pm.variables.replaceIn('{{$guid}}').replace(/-/g, '').slice(0, 12);", "pm.environment.set('testCafeName', `Postman Cafe ${guid}`);"] } }, { "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('Cafe submission returns 201', () => pm.response.to.have.status(201));", "const body = pm.response.json();", "pm.test('Created cafe has an ID and submitted-by user', () => { pm.expect(body.success).to.eql(true); pm.expect(body.cafe).to.have.property('_id'); pm.expect(body.cafe).to.have.property('submittedBy'); });", "pm.environment.set('testCafeId', body.cafe._id);", "pm.environment.set('cafeId', body.cafe._id);"] } }],
+          "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"name\": \"{{testCafeName}}\",\n  \"description\": \"A uniquely named temporary cafe for Postman API verification.\",\n  \"address\": \"123 Postman Test Road\",\n  \"locality\": \"Testville\",\n  \"city\": \"Pune\",\n  \"cuisine\": \"Cafe\",\n  \"averagePriceForTwo\": 850,\n  \"openingHours\": \"9:00 AM - 8:00 PM\",\n  \"contactNumber\": \"\",\n  \"imageUrl\": \"\"\n}", "options": { "raw": { "language": "json" } } }, "url": "{{baseUrl}}/api/cafes" }
+        },
+        {
+          "name": "Cafe submission - missing fields",
+          "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\"name\":\"Incomplete test cafe\"}", "options": { "raw": { "language": "json" } } }, "url": "{{baseUrl}}/api/cafes" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('HTTP 400 for invalid cafe payload', () => pm.response.to.have.status(400));", "const body = pm.response.json();", "pm.test('Validation response includes field errors', () => { pm.expect(body.success).to.eql(false); pm.expect(body.fieldErrors).to.be.an('object'); });"] } }]
+        },
+        {
+          "name": "Cafe detail - created test cafe",
+          "request": { "method": "GET", "header": [], "url": "{{baseUrl}}/api/cafes/{{testCafeId}}" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('HTTP 200 for created test cafe', () => pm.response.to.have.status(200));", "pm.test('Returned ID matches the test cafe', () => pm.expect(pm.response.json().cafe._id).to.eql(pm.environment.get('testCafeId')));"] } }]
+        },
+        {
+          "name": "Cafe update - update only created test cafe",
+          "request": { "method": "PATCH", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\"description\":\"Updated by the WHEN IN Postman API verification collection.\"}", "options": { "raw": { "language": "json" } } }, "url": "{{baseUrl}}/api/cafes/{{testCafeId}}" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('HTTP 200 for own test cafe update', () => pm.response.to.have.status(200));", "pm.test('Updated cafe response is present', () => { pm.expect(pm.response.json().success).to.eql(true); pm.expect(pm.response.json().cafe.description).to.include('Postman API verification'); });"] } }]
+        },
+        {
+          "name": "Cafe update - invalid input",
+          "request": { "method": "PATCH", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\"name\":\"x\"}", "options": { "raw": { "language": "json" } } }, "url": "{{baseUrl}}/api/cafes/{{testCafeId}}" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('HTTP 400 for invalid cafe update', () => pm.response.to.have.status(400));", "pm.test('Validation error message is returned', () => pm.expect(pm.response.json().message).to.eql('Invalid cafe update.'));"] } }]
+        },
+        {
+          "name": "Cafe update - invalid ID",
+          "request": { "method": "PATCH", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\"description\":\"Valid description\"}", "options": { "raw": { "language": "json" } } }, "url": "{{baseUrl}}/api/cafes/not-an-object-id" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('HTTP 404 for invalid cafe ID', () => pm.response.to.have.status(404));", "pm.test('Cafe is not modified', () => pm.expect(pm.response.json().success).to.eql(false));"] } }]
+        },
+        {
+          "name": "Notification history",
+          "request": { "method": "GET", "header": [], "url": "{{baseUrl}}/api/notifications" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('HTTP 200 while authenticated', () => pm.response.to.have.status(200));", "const body = pm.response.json();", "pm.test('Notification history includes records and unread count', () => { pm.expect(body.success).to.eql(true); pm.expect(body.data).to.be.an('array'); pm.expect(body.unreadCount).to.be.a('number'); });", "const testNotification = body.data.find(item => item.cafeId === pm.environment.get('testCafeId'));", "if (testNotification) pm.environment.set('testNotificationId', testNotification._id);"] } }]
+        },
+        {
+          "name": "Mark test notification as read",
+          "request": { "method": "PATCH", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\"notificationId\":\"{{testNotificationId}}\"}", "options": { "raw": { "language": "json" } } }, "url": "{{baseUrl}}/api/notifications" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('HTTP 200 for mark-as-read', () => pm.response.to.have.status(200));", "const body = pm.response.json();", "pm.test('Unread count is returned', () => pm.expect(body.unreadCount).to.be.a('number'));"] } }]
+        },
+        {
+          "name": "Mark notification read - invalid ID",
+          "request": { "method": "PATCH", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\"notificationId\":\"not-an-object-id\"}", "options": { "raw": { "language": "json" } } }, "url": "{{baseUrl}}/api/notifications" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('HTTP 400 for invalid notification ID', () => pm.response.to.have.status(400));", "pm.test('Error message is returned', () => pm.expect(pm.response.json().message).to.be.a('string'));"] } }]
+        },
+        {
+          "name": "Cafe deletion - delete only created test cafe",
+          "request": { "method": "DELETE", "header": [], "url": "{{baseUrl}}/api/cafes/{{testCafeId}}" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('HTTP 200 for own test cafe deletion', () => pm.response.to.have.status(200));", "pm.test('Deletion is confirmed', () => { pm.expect(pm.response.json().success).to.eql(true); pm.expect(pm.response.json().message).to.eql('Cafe deleted.'); });", "pm.environment.unset('testCafeId');"] } }]
+        },
+        {
+          "name": "Logout",
+          "request": { "method": "POST", "header": [], "url": "{{baseUrl}}/api/auth/logout" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('Logout returns 200', () => pm.response.to.have.status(200));", "pm.test('Logout response is successful', () => pm.expect(pm.response.json().success).to.eql(true));"] } }]
+        }
+      ]
+    },
+    {
+      "name": "03 - Email notification endpoints (manual only)",
+      "description": "Both routes can call Resend. Do not run these against real recipients. The request examples use example.invalid, but a configured email provider may still be invoked. Run only after reviewing the recipient and provider behavior.",
+      "item": [
+        {
+          "name": "Offer notification request - may send email",
+          "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"email\": \"{{recipientEmail}}\",\n  \"offerId\": \"{{offerId}}\",\n  \"cafeName\": \"Postman verification\",\n  \"offerTitle\": \"Manual Postman test\",\n  \"discount\": \"Example discount\",\n  \"terms\": \"Manual verification only\",\n  \"validity\": \"Manual test window\",\n  \"link\": \"{{baseUrl}}/offers\"\n}", "options": { "raw": { "language": "json" } } }, "url": "{{baseUrl}}/api/notifications/offer" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('Successful request is HTTP 200', () => pm.response.to.have.status(200));", "const body = pm.response.json();", "pm.test('Response reports email outcome and request record', () => { pm.expect(body.success).to.eql(true); pm.expect(body.emailResult).to.be.an('object'); pm.expect(body.notification).to.have.property('idempotencyKey'); });"] } }]
+        },
+        {
+          "name": "Cafe submission email request - may send email",
+          "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"email\": \"{{recipientEmail}}\",\n  \"cafeName\": \"Manual Postman verification\"\n}", "options": { "raw": { "language": "json" } } }, "url": "{{baseUrl}}/api/notifications/cafe-submission" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('Successful request is HTTP 200', () => pm.response.to.have.status(200));", "const body = pm.response.json();", "pm.test('Response reports the notification and email result', () => { pm.expect(body.success).to.eql(true); pm.expect(body.emailResult).to.be.an('object'); pm.expect(body.notification).to.have.property('idempotencyKey'); });"] } }]
+        },
+        {
+          "name": "Offer notification - invalid payload (no email)",
+          "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\"email\":\"not-an-email\"}", "options": { "raw": { "language": "json" } } }, "url": "{{baseUrl}}/api/notifications/offer" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('HTTP 400 for invalid payload', () => pm.response.to.have.status(400));", "pm.test('Validation response is explicit', () => pm.expect(pm.response.json().message).to.be.a('string'));"] } }]
+        },
+        {
+          "name": "Cafe submission notification email - invalid payload (no email)",
+          "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\"email\":\"not-an-email\"}", "options": { "raw": { "language": "json" } } }, "url": "{{baseUrl}}/api/notifications/cafe-submission" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('HTTP 400 for invalid payload', () => pm.response.to.have.status(400));", "pm.test('Validation response is explicit', () => pm.expect(pm.response.json().message).to.be.a('string'));"] } }]
+        }
+      ]
+    },
+    {
+      "name": "04 - Manual global mutation (do not run by default)",
+      "description": "Mark-all-read changes every unread in-app notification for the authenticated account, including existing records. Only run when that account has no existing unread notifications or after explicit approval.",
+      "item": [
+        {
+          "name": "Mark all notifications as read",
+          "request": { "method": "PATCH", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\"markAllRead\":true}", "options": { "raw": { "language": "json" } } }, "url": "{{baseUrl}}/api/notifications" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('HTTP 200', () => pm.response.to.have.status(200));", "pm.test('All unread notifications are marked read', () => pm.expect(pm.response.json().unreadCount).to.eql(0));"] } }]
+        }
+      ]
+    },
+    {
+      "name": "05 - Rate limit probe (safe invalid logins)",
+      "description": "Makes 21 invalid login attempts for a nonexistent .invalid email. It does not create accounts or send email. The repository currently has a rate-limit helper but does not apply it to routes, so this test is expected to fail until enforcement is wired in.",
+      "item": [
+        {
+          "name": "Probe login throttling with 21 invalid attempts",
+          "event": [{ "listen": "prerequest", "script": { "type": "text/javascript", "exec": ["const url = pm.variables.replaceIn('{{baseUrl}}') + '/api/auth/login';", "const results = [];", "const send = (iteration) => new Promise(resolve => pm.sendRequest({ url, method: 'POST', header: { 'Content-Type': 'application/json' }, body: { mode: 'raw', raw: JSON.stringify({ email: `rate-limit-probe-${pm.variables.replaceIn('{{$guid}}')}@example.invalid`, password: 'Invalid-Postman-Probe-Password' }) } }, (error, response) => { results.push(error ? 0 : response.code); resolve(); }));", "(async () => { for (let i = 0; i < 21; i += 1) await send(i); pm.collectionVariables.set('rateLimitStatuses', JSON.stringify(results)); })();"] } }, { "listen": "test", "script": { "type": "text/javascript", "exec": ["const statuses = JSON.parse(pm.collectionVariables.get('rateLimitStatuses') || '[]');", "pm.test('Probe sent all 21 invalid login attempts', () => pm.expect(statuses).to.have.length(21));", "pm.test('Rate limiter returns HTTP 429 for at least one attempt', () => pm.expect(statuses).to.include(429));"] } }],
+          "request": { "method": "GET", "header": [], "url": "{{baseUrl}}/api/health" }
+        }
+      ]
+    }
+  ]
+}
