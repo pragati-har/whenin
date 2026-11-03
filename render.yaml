@@ -3,7 +3,7 @@ services:
     name: whenin-app
     runtime: node
     plan: free
-    buildCommand: npm ci --legacy-peer-deps && npm run build
+    buildCommand: npm ci --include=dev --legacy-peer-deps && npm run build
     startCommand: npm start
     healthCheckPath: /api/health
     autoDeploy: false
