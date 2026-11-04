@@ -1,0 +1,94 @@
+name: Docker Build and Smoke Test
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  docker-smoke:
+    name: Build and smoke-test container
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          load: true
+          tags: whenin:experiment10
+
+      - name: Run read-only application smoke tests
+        env:
+          MONGODB_URI: ${{ secrets.MONGODB_URI }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${MONGODB_URI:-}" ] || [ -z "${JWT_SECRET:-}" ]; then
+            if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+              echo "::warning::Docker image build passed; runtime smoke tests skipped because MONGODB_URI and/or JWT_SECRET are unavailable to this pull request."
+              exit 0
+            fi
+            echo "::error::Configure the MONGODB_URI and JWT_SECRET repository secrets to run container smoke tests."
+            exit 1
+          fi
+
+          container_name="whenin-smoke-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          log_file="${RUNNER_TEMP}/${container_name}.log"
+          cleanup() {
+            docker rm --force "$container_name" >/dev/null 2>&1 || true
+            rm -f "$log_file"
+          }
+          trap cleanup EXIT
+
+          docker run --detach \
+            --name "$container_name" \
+            --publish 127.0.0.1:3000:3000 \
+            --env NODE_ENV=production \
+            --env PORT=3000 \
+            --env MONGODB_URI \
+            --env JWT_SECRET \
+            whenin:experiment10 >/dev/null
+
+          ready=false
+          for attempt in $(seq 1 36); do
+            if curl --fail --silent http://127.0.0.1:3000/api/health >/dev/null; then
+              ready=true
+              break
+            fi
+            sleep 5
+          done
+          if [ "$ready" != true ]; then
+            echo "::error::Container did not become healthy through /api/health."
+            exit 1
+          fi
+
+          curl --fail --silent http://127.0.0.1:3000/ |
+            node -e "let body=''; process.stdin.on('data', chunk => body += chunk); process.stdin.on('end', () => { if (!/<html[\\s>]/i.test(body)) { console.error('Homepage response was not HTML.'); process.exit(1); } console.log('Homepage: passed.'); });"
+
+          curl --fail --silent http://127.0.0.1:3000/api/health |
+            node -e "let body=''; process.stdin.on('data', chunk => body += chunk); process.stdin.on('end', () => { const result=JSON.parse(body); if (!result.success || result.database?.status !== 'connected' || result.database?.activeName !== 'WHENIN') { console.error('Health API did not confirm a connection to WHENIN.'); process.exit(1); } console.log('Health API: passed (MongoDB connected to WHENIN).'); });"
+
+          curl --fail --silent 'http://127.0.0.1:3000/api/cafes?page=1&limit=1' |
+            node -e "let body=''; process.stdin.on('data', chunk => body += chunk); process.stdin.on('end', () => { const result=JSON.parse(body); if (!result.success || !Array.isArray(result.data) || !result.pagination || result.pagination.currentPage !== 1 || result.pagination.pageSize !== 1) { console.error('Cafe listing response shape or pagination was invalid.'); process.exit(1); } console.log('Cafe listing API: passed (valid data and pagination response).'); });"
+
+          docker logs --tail 200 "$container_name" >"$log_file" 2>&1
+          if grep --extended-regexp --ignore-case --quiet '(^|[[:space:]])(ERROR|FATAL|UnhandledPromiseRejection)(:|[[:space:]]|$)|Error: ' "$log_file"; then
+            echo "::error::Container logs contain a runtime error marker."
+            exit 1
+          fi
+          echo "Container logs: checked; no runtime error markers found."
